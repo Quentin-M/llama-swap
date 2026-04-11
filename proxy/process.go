@@ -351,6 +351,9 @@ func (p *Process) start() error {
 		}
 	}
 
+	// TTL monitoring for automatic model unloading.
+	// Note: Monitoring endpoints like /api/events do NOT reset the TTL timer.
+	// Only actual inference requests (e.g., /v1/chat/completions) count toward idle timeout.
 	if p.config.UnloadAfter > 0 {
 		// start a goroutine to check every second if
 		// the process should be stopped
@@ -513,7 +516,10 @@ func (p *Process) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 	p.inFlightRequests.Add(1)
 	p.inFlightRequestsCount.Add(1)
 	defer func() {
-		p.setLastRequestHandled(time.Now())
+		// Skip TTL tracking for monitoring endpoints
+		if r.URL.Path != "/api/events" {
+			p.setLastRequestHandled(time.Now())
+		}
 		p.inFlightRequestsCount.Add(-1)
 		p.inFlightRequests.Done()
 	}()
