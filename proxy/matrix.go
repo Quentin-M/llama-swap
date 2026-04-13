@@ -155,7 +155,7 @@ func NewMatrix(cfg config.Config, proxyLogger, upstreamLogger *LogMonitor) *Matr
 	processes := make(map[string]*Process)
 	for modelID, modelConfig := range cfg.Models {
 		processLogger := NewLogMonitorWriter(upstreamLogger)
-		process := NewProcess(modelID, cfg.HealthCheckTimeout, modelConfig, processLogger, proxyLogger)
+		process := NewProcess(modelID, cfg.HealthCheckTimeout, cfg.StartupTimeout, modelConfig, processLogger, proxyLogger)
 		processes[modelID] = process
 	}
 
