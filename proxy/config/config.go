@@ -191,6 +191,30 @@ func (c *Config) RealModelName(search string) (string, bool) {
 	return preferred, found
 }
 
+// ResolveAliasRuntime resolves an alias or model ID to a single model ID.
+// If the preferred (starred) model is starting or ready, it is returned.
+// Otherwise, candidates are checked in order and the first starting/ready one is returned.
+// Falls back to the preferred model if all candidates are stopped/unknown.
+// processState maps model ID to its state string (e.g. "starting", "ready").
+func (c *Config) ResolveAliasRuntime(search string, processState map[string]string) (string, bool) {
+	candidates, preferred, found := c.ResolveAlias(search)
+	if !found {
+		return "", false
+	}
+
+	// Check candidates in order: prefer running/starting over preferred
+	for _, candidate := range candidates {
+		if state, ok := processState[candidate]; ok {
+			if state == "starting" || state == "ready" {
+				return candidate, true
+			}
+		}
+	}
+
+	// All candidates stopped or unknown — fall back to preferred
+	return preferred, true
+}
+
 func (c *Config) FindConfig(modelName string) (ModelConfig, string, bool) {
 	if realName, found := c.RealModelName(modelName); !found {
 		return ModelConfig{}, "", false

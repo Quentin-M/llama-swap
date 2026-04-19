@@ -56,7 +56,6 @@ type Process struct {
 	processLogger *LogMonitor
 	proxyLogger   *LogMonitor
 
-	healthCheckTimeout      int
 	startupTimeout          int
 	healthCheckLoopInterval time.Duration
 
@@ -85,7 +84,7 @@ type Process struct {
 	failedStartCount int
 }
 
-func NewProcess(ID string, healthCheckTimeout int, startupTimeout int, config config.ModelConfig, processLogger *LogMonitor, proxyLogger *LogMonitor) *Process {
+func NewProcess(ID string, startupTimeout int, config config.ModelConfig, processLogger *LogMonitor, proxyLogger *LogMonitor) *Process {
 	concurrentLimit := 10
 	if config.ConcurrencyLimit > 0 {
 		concurrentLimit = config.ConcurrencyLimit
@@ -135,7 +134,6 @@ func NewProcess(ID string, healthCheckTimeout int, startupTimeout int, config co
 		cancelUpstream:          nil,
 		processLogger:           processLogger,
 		proxyLogger:             proxyLogger,
-		healthCheckTimeout:      healthCheckTimeout,
 		startupTimeout:          startupTimeout,
 		healthCheckLoopInterval: 5 * time.Second, /* default, can not be set by user - used for testing */
 		state:                   StateStopped,
@@ -399,6 +397,17 @@ func (p *Process) start() error {
 		}
 	}
 
+	if curState, err := p.swapState(StateStarting, StateReady); err != nil {
+		return fmt.Errorf("failed to set Process state to ready: current state: %v, error: %v", curState, err)
+	}
+
+	p.failedStartCount = 0
+
+	// Initialize lastRequestHandled to now so TTL counts down from readiness,
+	// not from process creation. This prevents premature unloading when models
+	// take a long time to load and the TTL goroutine started before readiness.
+	p.setLastRequestHandled(time.Now())
+
 	if p.config.UnloadAfter > 0 {
 		// start a goroutine to check every second if
 		// the process should be stopped
@@ -424,12 +433,7 @@ func (p *Process) start() error {
 		}()
 	}
 
-	if curState, err := p.swapState(StateStarting, StateReady); err != nil {
-		return fmt.Errorf("failed to set Process state to ready: current state: %v, error: %v", curState, err)
-	} else {
-		p.failedStartCount = 0
-		return nil
-	}
+	return nil
 }
 
 // Stop will wait for inflight requests to complete before stopping the process.

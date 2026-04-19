@@ -1544,3 +1544,89 @@ peers:
 	assert.Equal(t, 1, peerConfig.Timeouts.ExpectContinue)
 	assert.Equal(t, 90, peerConfig.Timeouts.IdleConn)
 }
+
+func TestResolveAliasRuntime(t *testing.T) {
+	configYaml := `
+models:
+  modelA:
+    aliases: ["myalias*"]
+    cmd: "echo A"
+    proxy: "http://localhost:8000"
+  modelB:
+    aliases: ["myalias"]
+    cmd: "echo B"
+    proxy: "http://localhost:8001"
+  modelC:
+    aliases: ["other"]
+    cmd: "echo C"
+    proxy: "http://localhost:8002"
+`
+
+	config, err := LoadConfigFromReader(strings.NewReader(configYaml))
+	require.NoError(t, err)
+
+	t.Run("direct model ID match", func(t *testing.T) {
+		states := map[string]string{"modelA": "ready"}
+		modelID, found := config.ResolveAliasRuntime("modelA", states)
+		assert.True(t, found)
+		assert.Equal(t, "modelA", modelID)
+	})
+
+	t.Run("preferred model is starting", func(t *testing.T) {
+		// modelA is preferred (has *) and is starting
+		// modelB is candidate and is ready
+		// Per requirements: if preferred is starting/running, pick it
+		states := map[string]string{
+			"modelA": "starting",
+			"modelB": "ready",
+		}
+		modelID, found := config.ResolveAliasRuntime("myalias", states)
+		assert.True(t, found)
+		assert.Equal(t, "modelA", modelID, "should prefer starting preferred over ready candidate")
+	})
+
+	t.Run("preferred is starting, no candidates ready", func(t *testing.T) {
+		states := map[string]string{
+			"modelA": "starting",
+			"modelB": "stopped",
+		}
+		modelID, found := config.ResolveAliasRuntime("myalias", states)
+		assert.True(t, found)
+		assert.Equal(t, "modelA", modelID, "should fall back to preferred when no candidates ready")
+	})
+
+	t.Run("preferred is stopped, candidate is starting", func(t *testing.T) {
+		states := map[string]string{
+			"modelA": "stopped",
+			"modelB": "starting",
+		}
+		modelID, found := config.ResolveAliasRuntime("myalias", states)
+		assert.True(t, found)
+		assert.Equal(t, "modelB", modelID, "should prefer starting candidate over stopped preferred")
+	})
+
+	t.Run("all models stopped", func(t *testing.T) {
+		states := map[string]string{
+			"modelA": "stopped",
+			"modelB": "stopped",
+		}
+		modelID, found := config.ResolveAliasRuntime("myalias", states)
+		assert.True(t, found)
+		assert.Equal(t, "modelA", modelID, "should fall back to preferred when all stopped")
+	})
+
+	t.Run("unknown alias", func(t *testing.T) {
+		states := map[string]string{}
+		modelID, found := config.ResolveAliasRuntime("unknown", states)
+		assert.False(t, found)
+		assert.Equal(t, "", modelID)
+	})
+
+	t.Run("single candidate alias", func(t *testing.T) {
+		// "other" only has modelC as candidate and preferred
+		states := map[string]string{"modelC": "ready"}
+		modelID, found := config.ResolveAliasRuntime("other", states)
+		assert.True(t, found)
+		assert.Equal(t, "modelC", modelID)
+	})
+}

@@ -249,7 +249,7 @@ func (pm *ProxyManager) apiGetMetrics(c *gin.Context) {
 
 func (pm *ProxyManager) apiUnloadSingleModelHandler(c *gin.Context) {
 	requestedModel := strings.TrimPrefix(c.Param("model"), "/")
-	realModelName, found := pm.config.RealModelName(requestedModel)
+	realModelName, found := pm.config.ResolveAliasRuntime(requestedModel, pm.getProcessStates())
 	if !found {
 		pm.sendErrorResponse(c, http.StatusNotFound, "Model not found")
 		return

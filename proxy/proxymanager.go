@@ -638,6 +638,7 @@ func (pm *ProxyManager) listModelsHandler(c *gin.Context) {
 func (pm *ProxyManager) findModelInPath(path string) (searchName string, realName string, remainingPath string, found bool) {
 	parts := strings.Split(strings.TrimSpace(path), "/")
 	searchModelName := ""
+	processStates := pm.getProcessStates()
 
 	for i, part := range parts {
 		if part == "" {
@@ -650,7 +651,7 @@ func (pm *ProxyManager) findModelInPath(path string) (searchName string, realNam
 			searchModelName = searchModelName + "/" + part
 		}
 
-		if modelID, ok := pm.config.RealModelName(searchModelName); ok {
+		if modelID, ok := pm.config.ResolveAliasRuntime(searchModelName, processStates); ok {
 			return searchModelName, modelID, "/" + strings.Join(parts[i+1:], "/"), true
 		}
 	}
@@ -733,7 +734,7 @@ func (pm *ProxyManager) proxyInferenceHandler(c *gin.Context) {
 	// Look for a matching local model first
 	var nextHandler func(modelID string, w http.ResponseWriter, r *http.Request) error
 
-	modelID, found := pm.config.RealModelName(requestedModel)
+	modelID, found := pm.config.ResolveAliasRuntime(requestedModel, pm.getProcessStates())
 	if found {
 		var localHandler func(string, http.ResponseWriter, *http.Request) error
 		if pm.matrix != nil {
@@ -886,7 +887,7 @@ func (pm *ProxyManager) proxyOAIPostFormHandler(c *gin.Context) {
 	var nextHandler func(modelID string, w http.ResponseWriter, r *http.Request) error
 	var useModelName string
 
-	modelID, found := pm.config.RealModelName(requestedModel)
+	modelID, found := pm.config.ResolveAliasRuntime(requestedModel, pm.getProcessStates())
 	if found {
 		if pm.matrix != nil {
 			nextHandler = pm.matrix.ProxyRequest
@@ -1011,7 +1012,7 @@ func (pm *ProxyManager) proxyGETModelHandler(c *gin.Context) {
 	var nextHandler func(modelID string, w http.ResponseWriter, r *http.Request) error
 	var modelID string
 
-	if realModelID, found := pm.config.RealModelName(requestedModel); found {
+	if realModelID, found := pm.config.ResolveAliasRuntime(requestedModel, pm.getProcessStates()); found {
 		modelID = realModelID
 		if pm.matrix != nil {
 			nextHandler = pm.matrix.ProxyRequest
@@ -1169,6 +1170,20 @@ func (pm *ProxyManager) findGroupByModelName(modelName string) *ProcessGroup {
 		}
 	}
 	return nil
+}
+
+// getProcessStates returns a map of model ID to current process state string.
+// Used for runtime alias resolution to prefer running/starting models.
+func (pm *ProxyManager) getProcessStates() map[string]string {
+	states := make(map[string]string)
+	for _, group := range pm.processGroups {
+		for _, modelID := range group.config.Groups[group.id].Members {
+			if process, ok := group.GetMember(modelID); ok {
+				states[modelID] = string(process.CurrentState())
+			}
+		}
+	}
+	return states
 }
 
 func (pm *ProxyManager) SetVersion(buildDate string, commit string, version string) {

@@ -534,6 +534,7 @@ func TestProxyManager_Shutdown(t *testing.T) {
 
 	cfg := config.AddDefaultGroupToConfig(config.Config{
 		HealthCheckTimeout: 15,
+		StartupTimeout:     15,
 		Models: map[string]config.ModelConfig{
 			"model1": model1Config,
 			"model2": model2Config,
